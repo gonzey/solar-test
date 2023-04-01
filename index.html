@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Babylon.js Scene</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Open+Sans&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Lato&display=swap');
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+    </style>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://code.jquery.com/pep/0.4.3/pep.js"></script>
+</head>
+<body>
+<div id="planetName" style="position: absolute; top: 10px; left: 10px; color: white; font-family: 'Roboto', sans-serif;"></div>
+<button id="toggleHighlight" style="position: absolute; top: 10px; right: 10px;">Toggle Highlight</button>
+<div id="populationPopup" style="display:none; position: absolute; background-color: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px;">
+    <div id="planetPopulation"></div>
+</div>
+<canvas id="renderCanvas"></canvas>
+<script>
+    // Initialize scene and engine
+    var createScene = function () {
+        var scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color3(0, 0, 0);
+
+        // Add a camera and control
+        var camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 4, 40, new BABYLON.Vector3(0, 0, 0), scene);
+        camera.attachControl(canvas, true);
+        camera.lowerRadiusLimit = 5;
+        camera.upperRadiusLimit = 100;
+
+        // Add a light source
+        var light = new BABYLON.PointLight("light", new BABYLON.Vector3(10, 10, 0), scene);
+
+        // Create planet materials
+        var sunMaterial = new BABYLON.StandardMaterial("sunMaterial", scene);
+        sunMaterial.emissiveColor = new BABYLON.Color3(1, 1, 0);
+
+        var earthMaterial = new BABYLON.StandardMaterial("earthMaterial", scene);
+        earthMaterial.diffuseTexture = new BABYLON.Texture("https://www.babylonjs-playground.com/textures/earth.jpg", scene);
+
+        var marsMaterial = new BABYLON.StandardMaterial("marsMaterial", scene);
+        marsMaterial.diffuseTexture = new BABYLON.Texture("https://i.imgur.com/7F0xRVc.jpg", scene);
+
+        var venusMaterial = new BABYLON.StandardMaterial("venusMaterial", scene);
+        venusMaterial.diffuseTexture = new BABYLON.Texture("https://i.imgur.com/oiKcR6k.jpg", scene);
+
+        var jupiterMaterial = new BABYLON.StandardMaterial("jupiterMaterial", scene);
+        jupiterMaterial.diffuseTexture = new BABYLON.Texture("https://i.imgur.com/7JYYcGw.jpg", scene);
+
+        // Create planets
+        var sun = BABYLON.MeshBuilder.CreateSphere("sun", {diameter: 5}, scene);
+        sun.material = sunMaterial;
+
+        var earth = BABYLON.MeshBuilder.CreateSphere("earth", {diameter: 1}, scene);
+        earth.material = earthMaterial;
+
+        var mars = BABYLON.MeshBuilder.CreateSphere("mars", {diameter: 0.6}, scene);
+        mars.material = marsMaterial;
+
+        var venus = BABYLON.MeshBuilder.CreateSphere("venus", {diameter: 0.9}, scene);
+        venus.material = venusMaterial;
+
+        var jupiter = BABYLON.MeshBuilder.CreateSphere("jupiter", {diameter: 2}, scene);
+        jupiter.material = jupiterMaterial;
+
+
+        // Orbit parameters
+        var earthOrbitSemiMajorAxis = 10;
+        var earthOrbitSemiMinorAxis = 9.8;
+        var earthOrbitEccentricity = 0.0167;
+        var earthOrbitPeriod = 365.25;
+
+        var marsOrbitSemiMajorAxis = 15;
+        var marsOrbitSemiMinorAxis = 14.7;
+        var marsOrbitEccentricity = 0.0934;
+        var marsOrbitPeriod = 687;
+
+        var venusOrbitSemiMajorAxis = 7;
+        var venusOrbitSemiMinorAxis = 6.9;
+        var venusOrbitEccentricity = 0.00677;
+        var venusOrbitPeriod = 225;
+
+        var jupiterOrbitSemiMajorAxis = 20;
+        var jupiterOrbitSemiMinorAxis = 19.9;
+        var jupiterOrbitEccentricity = 0.0484;
+        var jupiterOrbitPeriod = 4332;
+
+        // Functions for planetary motion
+        function calculateTrueAnomaly(time, orbitPeriod, eccentricity) {
+            var meanAnomaly = 2 * Math.PI * (time % orbitPeriod) / orbitPeriod;
+            var eccentricAnomaly = meanAnomaly;
+            for (var i = 0; i < 100; i++) {
+                var deltaE = (meanAnomaly + eccentricity * Math.sin(eccentricAnomaly) - eccentricAnomaly) / (1 - eccentricity * Math.cos(eccentricAnomaly));
+                eccentricAnomaly += deltaE;
+                if (Math.abs(deltaE) < 1e-6) break;
+            }
+            var trueAnomaly = 2 * Math.atan(Math.sqrt((1 + eccentricity) / (1 - eccentricity)) * Math.tan(eccentricAnomaly / 2));
+            return trueAnomaly;
+        }
+
+        function updatePlanetPosition(planet, trueAnomaly, semiMajorAxis, semiMinorAxis, eccentricity) {
+            var distance = semiMajorAxis * (1 - eccentricity * eccentricity) / (1 + eccentricity * Math.cos(trueAnomaly));
+            planet.position.x = distance * Math.cos(trueAnomaly);
+            planet.position.z = distance * Math.sin(trueAnomaly);
+        }
+
+        // Add animation
+        let startTime = new Date();
+        scene.registerBeforeRender(function () {
+            let currentTime = (new Date() - startTime) / 1000;
+            let earthTrueAnomaly = calculateTrueAnomaly(currentTime, earthOrbitPeriod, earthOrbitEccentricity);
+            updatePlanetPosition(earth, earthTrueAnomaly, earthOrbitSemiMajorAxis, earthOrbitSemiMinorAxis, earthOrbitEccentricity);
+
+            let marsTrueAnomaly = calculateTrueAnomaly(currentTime, marsOrbitPeriod, marsOrbitEccentricity);
+            updatePlanetPosition(mars, marsTrueAnomaly, marsOrbitSemiMajorAxis, marsOrbitSemiMinorAxis, marsOrbitEccentricity);
+
+            let venusTrueAnomaly = calculateTrueAnomaly(currentTime, venusOrbitPeriod, venusOrbitEccentricity);
+            updatePlanetPosition(venus, venusTrueAnomaly, venusOrbitSemiMajorAxis, venusOrbitSemiMinorAxis, venusOrbitEccentricity);
+
+            let jupiterTrueAnomaly = calculateTrueAnomaly(currentTime, jupiterOrbitPeriod, jupiterOrbitEccentricity);
+            updatePlanetPosition(jupiter, jupiterTrueAnomaly, jupiterOrbitSemiMajorAxis, jupiterOrbitSemiMinorAxis, jupiterOrbitEccentricity);
+        });
+
+        // Function to generate random population count for each planet
+        function generatePopulation() {
+            return Math.floor(Math.random() * 1000000) + 500000;
+        }
+
+        // Assign population count to each planet
+        earth.population = generatePopulation();
+        mars.population = generatePopulation();
+        venus.population = generatePopulation();
+        jupiter.population = generatePopulation();
+
+        // Function to display population count in a popup UI
+        function showPopulationPopup(planet) {
+            const populationPopup = document.getElementById("populationPopup");
+            const planetPopulation = document.getElementById("planetPopulation");
+
+            if (planet) {
+                planetPopulation.innerHTML = `Population: ${planet.population.toLocaleString()}`;
+                populationPopup.style.display = "block";
+                populationPopup.style.left = `${planet.absolutePosition.x + 10}px`;
+                populationPopup.style.top = `${planet.absolutePosition.y - 10}px`;
+            } else {
+                populationPopup.style.display = "none";
+            }
+        }
+
+        // Event listeners for each planet
+        earth.actionManager = new BABYLON.ActionManager(scene);
+        mars.actionManager = new BABYLON.ActionManager(scene);
+        venus.actionManager = new BABYLON.ActionManager(scene);
+        jupiter.actionManager = new BABYLON.ActionManager(scene);
+
+        earth.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickDownTrigger, function () {
+            showPopulationPopup(earth);
+        }));
+
+        mars.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickDownTrigger, function () {
+            showPopulationPopup(mars);
+        }));
+
+        venus.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickDownTrigger, function () {
+            showPopulationPopup(venus);
+        }));
+
+        jupiter.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickDownTrigger, function () {
+            showPopulationPopup(jupiter);
+        }));
+
+        // Hide population popup when clicking elsewhere
+        scene.onPointerDown = function (evt, pickResult) {
+            if (pickResult.hit && [earth, mars, venus, jupiter].includes(pickResult.pickedMesh)) {
+                return;
+            }
+            showPopulationPopup(null);
+        };
+
+
+// Add this function to create random asteroids
+        function createAsteroids(scene, numberOfAsteroids) {
+            const asteroids = [];
+
+            for (let i = 0; i < numberOfAsteroids; i++) {
+                const size = Math.random() * 0.5 + 0.2;
+
+                // Create a tetrahedron as the asteroid shape
+                const asteroid = BABYLON.MeshBuilder.CreatePolyhedron("asteroid" + i, { type: 0, size: size }, scene);
+                asteroid.position.x = Math.random() * 30 - 15;
+                asteroid.position.y = Math.random() * 10 - 5;
+                asteroid.position.z = Math.random() * 30 - 15;
+
+                const hoverColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
+                asteroid.hoverColor = hoverColor;
+                asteroid.value = size * 10;
+
+                const asteroidMaterial = new BABYLON.StandardMaterial("asteroidMaterial" + i, scene);
+                asteroidMaterial.diffuseColor = hoverColor;
+                asteroid.material = asteroidMaterial;
+
+                asteroids.push(asteroid);
+            }
+
+            return asteroids;
+        }
+
+// Add this function to create a currency text element for a planet
+        function createCurrencyText(planetName, font) {
+            const currencyText = document.createElement("div");
+            currencyText.id = planetName + "Currency";
+            currencyText.innerHTML = "$0";
+            currencyText.style.position = "absolute";
+            currencyText.style.top = "10px";
+            currencyText.style.left = "10px";
+            currencyText.style.fontFamily = font;
+            currencyText.style.fontSize = "24px";
+            currencyText.style.color = "white";
+            currencyText.style.zIndex = "100";
+            document.body.appendChild(currencyText);
+
+            return currencyText;
+        }
+
+
+        const earthCurrencyText = createCurrencyText("earth", "Roboto");
+        const marsCurrencyText = createCurrencyText("mars", "Montserrat");
+        marsCurrencyText.style.display = "none";
+// Add this function to handle pointer down events on asteroids
+        function onPointerDown(evt) {
+            const pickResult = scene.pick(scene.pointerX, scene.pointerY);
+
+            if (pickResult.hit && asteroids.includes(pickResult.pickedMesh)) {
+                const asteroid = pickResult.pickedMesh;
+                const value = asteroid.value;
+
+                if (highlightedPlanet === earth) {
+                    const currentCurrency = parseFloat(earthCurrencyText.innerHTML.substring(1));
+                    earthCurrencyText.innerHTML = "$" + (currentCurrency + value).toFixed(2);
+
+                } else if (highlightedPlanet === mars) {
+                    const currentCurrency = parseFloat(marsCurrencyText.innerHTML.substring(1));
+                    marsCurrencyText.innerHTML = "$" + (currentCurrency + value).toFixed(2);
+                }
+
+                // Remove the mined asteroid
+                asteroid.dispose();
+                const asteroidIndex = asteroids.indexOf(asteroid);
+                asteroids.splice(asteroidIndex, 1);
+            }
+        }
+        // Add these lines before 'return scene;'
+        const numberOfAsteroids = 20;
+        const asteroids = createAsteroids(scene, numberOfAsteroids);
+        let largestAsteroid = asteroids[0];
+        asteroids.forEach(asteroid => {
+            if (asteroid.scaling.x > largestAsteroid.scaling.x) {
+                largestAsteroid = asteroid;
+            }
+        });
+        // Assuming 'largestAsteroid' is already defined and added to the scene
+        const largestAsteroidDiameter = largestAsteroid.scaling.x;
+        const smallestPlanetDiameter = venus.scaling.x;
+        const scaleFactor = 3;
+
+        if (smallestPlanetDiameter < largestAsteroidDiameter * scaleFactor) {
+            const newScale = largestAsteroidDiameter * scaleFactor;
+            venus.scaling = new BABYLON.Vector3(newScale, newScale, newScale);
+        }
+        return scene;
+    };
+
+    var canvas = document.getElementById("renderCanvas");
+    var engine = new BABYLON.Engine(canvas, true);
+
+    var scene = createScene();
+    var planetNameDiv = document.getElementById("planetName");
+    var toggleHighlightButton = document.getElementById("toggleHighlight");
+    var highlightedPlanet = null;
+
+    function displayPlanetName(planet) {
+        if (planet === earth) {
+            planetNameDiv.innerHTML = "Earth";
+            planetNameDiv.style.fontFamily = "'Roboto', sans-serif";
+        } else if (planet === mars) {
+            planetNameDiv.innerHTML = "Mars";
+            planetNameDiv.style.fontFamily = "'Montserrat', sans-serif";
+        } else if (planet === venus) {
+            planetNameDiv.innerHTML = "Venus";
+            planetNameDiv.style.fontFamily = "'Open Sans', sans-serif";
+        } else if (planet === jupiter) {
+            planetNameDiv.innerHTML = "Jupiter";
+            planetNameDiv.style.fontFamily = "'Lato', sans-serif";
+        } else {
+            planetNameDiv.innerHTML = "";
+        }
+    }
+
+    function toggleHighlight() {
+        if (highlightedPlanet === null) {
+            highlightedPlanet = earth;
+            earthCurrencyText.style.display = "block";
+            marsCurrencyText.style.display = "block";
+        } else if (highlightedPlanet === earth) {
+            highlightedPlanet = mars;
+        } else if (highlightedPlanet === mars) {
+
+            highlightedPlanet = venus;
+        } else if (highlightedPlanet === venus) {
+            highlightedPlanet = jupiter;
+        } else {
+            highlightedPlanet = null;
+        }
+
+        displayPlanetName(highlightedPlanet);
+    }
+
+
+    engine.runRenderLoop(function () {
+        scene.render();
+    });
+    canvas.addEventListener("pointerdown", onPointerDown);
+
+    window.addEventListener("resize", function () {
+        engine.resize();
+    });
+    document.addEventListener("DOMContentLoaded", function () {
+        toggleHighlightButton.onclick = toggleHighlight;
+    });
+</script>
+</body>
+</html>
+
